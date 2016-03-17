@@ -80,7 +80,7 @@ sub renaming_scheme {
 		push @vars, var_list $term;
 	}
 
-	my %renames = map { $_ => $_ . "'" } @vars;
+	my %renames = map { $_ => $_ . '_' . $rename_counter } @vars;
 
 	return \%renames;
 }
@@ -97,20 +97,6 @@ sub rename_vars_clause {
 	}
 
 	$rename_counter++;
-}
-
-
-sub undo_rename_vars_clause {
-	my $clause = shift;
-	my $renames_orig = shift;
-
-	my $renames = { reverse %$renames_orig };
-
-	rename_vars $clause->{head}, $renames;
-	
-	for my $term (@{$clause->{body}}) {
-		rename_vars $term, $renames;
-	}
 }
 
 
@@ -218,7 +204,7 @@ sub clause_to_str {
 }
 
 
-sub find_mgu {
+sub mgu {
 	my ($t, $u) = @_;
 
 	if ($t->{type} eq Atom && $u->{type} eq Atom && $t->{name} eq $u->{name}) {
@@ -226,7 +212,7 @@ sub find_mgu {
 	}
 
 	if ($t->{type} eq Var && $u->{type} eq Var) {
-		return {$t->{name} => $u };
+		return { $t->{name} => $u };
 	}
 
 	if ($t->{type} eq Var && $u->{type} ne Var) {
@@ -240,24 +226,19 @@ sub find_mgu {
 	my $tc = dclone $t;
 	my $uc = dclone $u;
 
-	if ($tc->{type} eq Composite && $uc->{type} eq Composite) {
+	if ($t->{type} eq Composite && $u->{type} eq Composite) {
 		my $subst = {};
 
-		if (not $tc->{name} eq $uc->{name}) {
-			return;
-		}
-
-		if (scalar @{$tc->{args}} != scalar @{$uc->{args}}) {
-			return;
-		}
+		return if not $t->{name} eq $u->{name};
+		return if @{$t->{args}} != @{$u->{args}};
 
 		my $substs = {};
 		for (my $i = 0; $i < @{$tc->{args}}; $i++) {
-			$subst = find_mgu($tc->{args}->[$i], $uc->{args}->[$i]);
+			$subst = mgu($tc->{args}->[$i], $uc->{args}->[$i]);
 			return undef if not defined $subst;
 
-			do_subst($subst, $tc->{args});
-			do_subst($subst, $uc->{args});
+			substitute($subst, $tc->{args});
+			substitute($subst, $uc->{args});
 
 			for my $key (keys %$subst) {
 				$substs->{$key} = $subst->{$key};
@@ -271,71 +252,88 @@ sub find_mgu {
 }
 
 
-sub do_subst {
+sub substitute {
 	my ($subst, $goals) = @_;
 
 	for my $goal (@$goals) {
 		if ($goal->{type} eq Var) {
-			my $replace = $subst->{$goal->{name}};
-			next if not defined $replace;
-
-			%$goal = %$replace;
+			next if not exists $subst->{$goal->{name}};
+			%$goal = %{$subst->{$goal->{name}}};
 		}
 
 		if ($goal->{type} eq Composite) {
-			do_subst($subst, $goal->{args});
+			substitute($subst, $goal->{args});
 		}
+	}
+}
+
+
+sub comment {
+	say "% ", @_;
+}
+
+
+sub print_subst {
+	my $subst = shift;
+
+	for my $key (keys %$subst) {
+		comment "\t" . $key . '/' . term_to_str($subst->{$key});
 	}
 }
 
 
 sub reach {
 	my $goals = shift;
-	my $local_program = dclone $program;
+	my $vars = shift;
 
-	if (scalar @$goals == 0) {
+	if (@$goals == 0) {
+		comment 'No goals more.';
 		return 1;
 	}
+
+	comment 'Goals: ', join ', ', map { term_to_str $_ } @$goals;
 
 	my $done = 0;
 	my $goal = shift @$goals;
 
-	for my $clause (@$local_program) {
+	for my $clause (@$program) {
 		my $renames = renaming_scheme $clause;
-		rename_vars_clause $clause, $renames;;
-		my $subst = find_mgu $goal, $clause->{head};
+		rename_vars_clause $clause, $renames;
+
+		my $inv_renames = { reverse %$renames };
+
+		my $subst = mgu($goal, $clause->{head});
 
 		if (defined $subst) {
-			say "Using ", clause_to_str $clause;
-			for my $key (keys %$subst) {
-				say "$key = ", term_to_str $subst->{$key};
-			}
+			comment clause_to_str $clause;
+			#print_subst $subst;
 
-			my $new_goals = dclone [ @{$clause->{body}}, @$goals ];
+			my $body = $clause->{body};
+			my $new_goals = dclone [ @$body, @$goals ];
+			my $new_vars = dclone $vars;
 			
-			do_subst $subst, $new_goals;
-			do_subst $subst, [values %vars];
+			substitute($subst, $new_goals);
+			substitute($subst, [values %$vars]);
 
-			undo_rename_vars_clause $clause, $renames;
+			rename_vars_clause $clause, $inv_renames;
 
-			$done = reach($new_goals);
-			if (!$done) {
-				say "\tfalse.";
+			if ($done = reach($new_goals, $vars)) {
+				for my $name (keys %$vars) {
+					comment "$name = " . term_to_str $vars->{$name};
+				}
 			}
 			else {
-				say "Goal reached!";
-				for my $name (keys %vars) {
-					say "$name = ", term_to_str $vars{$name};
-				}
+				comment 'false.';
 			}
 		}
 		else {
-			undo_rename_vars_clause $clause, $renames;
+			rename_vars_clause $clause, $inv_renames;
 		}
 
-		#last if $done;
+		last if $done;
 	}
 
+	comment '%%';
 	return $done;
 }
 
@@ -344,6 +342,7 @@ while ($line = <>) {
 	next if $line =~ /^$/;
 
 	chomp $line;
+	$line =~ s/ //g;
 	@chars = split //, $line;
 	$pos = 0;
 
@@ -366,5 +365,5 @@ while (1) {
 	$goal = parse_term;
 	%vars = map { ($_->{name} => dclone $_) } get_var_terms $goal;
 
-	say +(reach [$goal]) ? 'true.' : 'false.';
+	say +(reach [$goal], \%vars) ? 'true.' : 'false.';
 }
