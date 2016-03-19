@@ -4,6 +4,8 @@ use strict;
 use warnings;
 use v5.20;
 
+no warnings 'recursion';
+
 use Data::Dumper;
 use Storable 'dclone';
 
@@ -80,7 +82,7 @@ sub renaming_scheme {
 		push @vars, var_list $term;
 	}
 
-	my %renames = map { $_ => $_ . '_' . $rename_counter } @vars;
+	my %renames = map { $_ => $_ . "_" . $rename_counter } @vars;
 
 	return \%renames;
 }
@@ -269,7 +271,7 @@ sub substitute {
 
 
 sub comment {
-	say "% ", @_;
+	#say "% ", @_;
 }
 
 
@@ -287,7 +289,13 @@ sub reach {
 	my $vars = shift;
 
 	if (@$goals == 0) {
-		comment 'No goals more.';
+		for my $name (keys %$vars) {
+			say "$name = " . term_to_str $vars->{$name};
+		}
+
+		comment 'true.';
+
+		<>;
 		return 1;
 	}
 
@@ -306,21 +314,23 @@ sub reach {
 
 		if (defined $subst) {
 			comment clause_to_str $clause;
-			#print_subst $subst;
+			print_subst $subst;
 
 			my $body = $clause->{body};
 			my $new_goals = dclone [ @$body, @$goals ];
 			my $new_vars = dclone $vars;
 			
 			substitute($subst, $new_goals);
-			substitute($subst, [values %$vars]);
+			substitute($subst, [{
+				type => 'Composite',
+				name => 'foo',
+				args => [values %$new_vars]
+			}]); # HACKY HACKY
+			substitute($subst, [values %$new_vars]);
 
 			rename_vars_clause $clause, $inv_renames;
 
-			if ($done = reach($new_goals, $vars)) {
-				for my $name (keys %$vars) {
-					comment "$name = " . term_to_str $vars->{$name};
-				}
+			if ($done = reach($new_goals, $new_vars)) {
 			}
 			else {
 				comment 'false.';
@@ -330,14 +340,13 @@ sub reach {
 			rename_vars_clause $clause, $inv_renames;
 		}
 
-		last if $done;
+		#last if $done;
 	}
 
 	comment '%%';
 	return $done;
 }
 
-say "Program:";
 while ($line = <>) {
 	next if $line =~ /^$/;
 
@@ -348,22 +357,28 @@ while ($line = <>) {
 
 	my $clause = parse_rule;
 	push @$program, $clause;
-
-	say "\t", (clause_to_str $clause), '.';
 }
-say "";
 
 while (1) {
 	print ":- ";
 	$line = <>;
+	$line =~ s/ //g;
 
 	last if not defined $line;
 
 	@chars = split //, $line;
-	$pos = 0;
+	my @goals = ();
 
-	$goal = parse_term;
-	%vars = map { ($_->{name} => dclone $_) } get_var_terms $goal;
+	for ($pos = 0; $pos < @chars; $pos++) {
+		push @goals, parse_term;
+		next if $chars[$pos] eq ',';
+		last;
+	}
 
-	say +(reach [$goal], \%vars) ? 'true.' : 'false.';
+	%vars = ();
+	for my $goal (@goals) {
+		%vars = (%vars, map { ($_->{name} => dclone $_) } get_var_terms $goal);
+	}
+
+	say +(reach \@goals, \%vars) ? 'true.' : 'false.';
 }
