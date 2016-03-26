@@ -73,6 +73,15 @@ sat2 initChar insideChar = do
     cs <- many (sat insideChar)
     return (c:cs)
 
+space :: Parser String
+space = many (sat isSpace)
+
+triml :: Parser a -> Parser a
+triml p = do
+    space
+    r <- p
+    return r
+
 sepBy :: Parser a -> Parser b -> Parser [a]
 sepBy p sep = do
     a <- p
@@ -87,13 +96,13 @@ list p = list1 p <|> return []
 
 {- Prolog character classes and operator parsers -}
 
-dot = char '.'
-comma = char ','
+dot = triml $ char '.'
+comma = triml $ char ','
 
 isIdentChar :: Char -> Bool
 isIdentChar c = isAlphaNum c || isSymbol c
 
-smiley = string ":-"
+smiley = triml $ string ":-"
 
 {- Prolog language construct parsers -}
 
@@ -108,10 +117,10 @@ number = fmap (Number . read) (some (sat isNumber))
 
 complex :: Parser Term
 complex = fmap (uncurry Complex) $ do
-    Atom f <- atom
-    char '('
-    args <- list1 term
-    char ')'
+    Atom f <- triml atom
+    char '(' -- don't triml here: space before `(' not allowed
+    args <- list1 $ triml term
+    triml $ char ')'
     return (f, args)
 
 term :: Parser Term
