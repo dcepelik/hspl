@@ -1,145 +1,125 @@
 import Data.Char
+import Control.Monad
+import Control.Applicative
 
+{- data structures -}
 
-data Category = Atom | Variable | Number | Operator | Complex deriving (Show, Eq)
+data Term = Atom String
+          | Number Int
+          | Variable String
+          | Complex String [Term]
+          deriving Show
 
-data Token = Token {
-    category :: Category,
-    token :: String
-}
+data Rule = Rule (Maybe Term) [Term]
+            deriving Show
 
-instance Show Token where
-    show (Token {token = token}) = show token
+{- Parser algebra -}
 
+data Parser a = Parser (String -> [(a, String)])
 
-data Term = Term {
-    tokenType :: Category,
-    name :: String,
-    args :: [Term]
-}
+instance Functor Parser where
+    fmap = liftM
 
-instance Show Term where
-    show (Term {tokenType = tokenType, name = name, args = args}) =
-        name ++ if tokenType == Complex then
-                    "(" ++ showTermList args ++ ")"
-                else []
+instance Applicative Parser where
+    pure v = Parser (\input -> [(v, input)])
+    (<*>) = ap
 
+instance Monad Parser where
+    p >>= f = Parser (
+        \cs -> concat [parse (f val) cs' | (val, cs') <- parse p cs])
+    return = pure
 
-showTermList [] = []
-showTermList (t : []) = show t
-showTermList (t : ts) = show t ++ ", " ++ showTermList ts
+instance MonadPlus Parser where
+    mzero = Parser (\input -> [])
+    mplus p q = Parser (\input -> parse p input ++ parse q input) 
 
+instance Alternative Parser where
+    empty = mzero
+    (<|>) = mplus
+    many p = some p `mplus` return []
+    some p = do
+        a <- p
+        as <- many p
+        return (a:as)
 
-data Rule = Rule {
-    lhs :: Maybe Term,
-    rhs :: [Term]
-}
+parse :: Parser a -> String -> [(a, String)]
+parse (Parser p) input = p input
 
-instance Show Rule where
-    show (Rule { lhs = lhs, rhs = rhs }) =
-        show lhs ++ " :- " ++ showTermList rhs
+{- simple parsers: building blocks for other parsers -}
 
+char :: Char -> Parser Char
+char c = sat (c ==)
 
-operators = "()[];"
-smileyOperator = ":-"
-openParen = "("
-closeParen = ")"
-comma = ","
-dot = "."
+string :: String -> Parser String
+string "" = return ""
+string (c:cs) = do
+    char c
+    string cs
+    return (c:cs)
 
+item :: Parser Char
+item = Parser (\input -> case input of
+    [] -> []
+    (c:cs) -> [(c, cs)])
 
-parse :: [Token] -> [Rule]
-parse [] = []
-parse ts =
-    let (rule, ts') = parseRule ts
-    in (rule : parse ts')
+sat :: (Char -> Bool) -> Parser Char
+sat pred = do
+    c <- item
+    if pred c then return c else mzero
 
+sat2 :: (Char -> Bool) -> (Char -> Bool) -> Parser String
+sat2 initChar insideChar = do
+    c <- sat initChar
+    cs <- many (sat insideChar)
+    return (c:cs)
 
-parseRule :: [Token] -> (Rule, [Token])
-parseRule [] = error "No tokens to parse"
-parseRule ts =
-    if null ts' || token (head ts') /= dot then
-        (rule, ts')
-    else
-        (rule, tail ts')
-    where (rule, ts') = parseRule' ts
+sepBy :: Parser a -> Parser b -> Parser [a]
+sepBy p sep = do
+    a <- p
+    as <- many (do {sep; p})
+    return (a:as)
 
+list1 :: Parser a -> Parser [a]
+list1 p = p `sepBy` comma
 
-parseRule' :: [Token] -> (Rule, [Token])
-parseRule' (t : ts)
-    | token t == smileyOperator =
-        let (terms, ts') = parseTermList ts
-        in (Rule {lhs = Nothing, rhs = terms}, ts')
-    | otherwise =
-        let (term, ts') = parseTerm (t : ts)
-            (terms, ts'') =
-                if null ts' then
-                     error "Syntax error: missing dot (.)"
-                else
-                    if token (head ts') == smileyOperator then
-                        parseTermList $ tail ts'
-                    else
-                        ([], ts')
-        in (Rule {lhs = Just term, rhs = terms}, ts'')
+list :: Parser a -> Parser [a]
+list p = list1 p <|> return []
 
+{- Prolog character classes and operator parsers -}
 
-parseTerm :: [Token] -> (Term, [Token])
-parseTerm [] = error "No tokens to parse"
-parseTerm (t : ts) =
-    case category t of
-        Variable -> (Term {tokenType = Variable, name = token t, args = []}, ts)
-        Number -> (Term{tokenType = Number, name = token t, args = []}, ts)
-        Atom -> parseAtom (t : ts)
-        Operator -> error "Operator was unexpected here"
-    where
-        parseAtom (t : ts)
-            | null ts || token (head ts) /= openParen =
-                (Term {tokenType = Atom, name = token t, args = []}, ts)
-            | otherwise = 
-                let (args, ts') = parseTermList (ts)
-                in (Term {tokenType = Complex, name = token t, args = args}, ts')
+dot = char '.'
+comma = char ','
 
+isIdentChar :: Char -> Bool
+isIdentChar c = isAlphaNum c || isSymbol c
 
-parseTermList :: [Token] -> ([Term], [Token])
-parseTermList [] = ([], [])
-parseTermList (t : ts)
-    | token t == openParen = parseTermList ts
-    | token t == comma = parseTermList ts
-    | token t `elem` [dot, closeParen] = ([], ts) -- TODO this allows . instead ), fix it
-    | otherwise =
-        let (term, ts') = parseTerm (t : ts)
-            (terms, ts'') = parseTermList ts'
-        in (term : terms, ts'')
+smiley = string ":-"
 
+{- Prolog language construct parsers -}
 
-tokens :: String -> [Token]
-tokens [] = []
-tokens (c : cs)
-    | isSpace c = tokens cs -- eat all whitespace
-    | otherwise =
-        let (token, cs') = nextToken (c : cs)
-        in token : tokens cs'
+variable :: Parser Term
+variable = fmap Variable $ sat2 isUpper isIdentChar
 
+atom :: Parser Term
+atom = fmap Atom $ sat2 (\c -> isLower c || c == '_') isIdentChar
 
-nextToken :: String -> (Token, String)
-nextToken [] = error "There are no tokens in an empty string"
-nextToken (c : cs)
-    | c `elem` operators = (Token {category = Atom, token = [c]}, cs)
-    | isUpper c || c == '_' = wrap Variable isValidIdentifierChar
-    | isLower c = wrap Atom isValidIdentifierChar
-    | isNumber c = wrap Number isNumber
-    | otherwise = wrap Operator (\c -> not (isLetter c || isSpace c))
-    where
-        wrap category charFilter =
-           let (acc, cs') = accumulate (c : cs) charFilter
-           in (Token {category = category, token = acc}, cs')
-        isValidIdentifierChar c = isAlphaNum c || c == '_'
+number :: Parser Term
+number = fmap (Number . read) (some (sat isNumber))
 
+complex :: Parser Term
+complex = fmap (uncurry Complex) $ do
+    Atom f <- atom
+    char '('
+    args <- list1 term
+    char ')'
+    return (f, args)
 
-accumulate :: String -> (Char -> Bool) -> (String, String)
-accumulate [] _ = ([], [])
-accumulate (c : cs) charFilter
-    | charFilter c =
-        let (acc, cs') = accumulate cs charFilter
-        in (c : acc, cs')
-    | otherwise = ([], c : cs)
+term :: Parser Term
+term = complex <|> atom <|> variable <|> number
+
+rule :: Parser Rule
+rule = fmap (uncurry Rule) $ do
+    ruleHead <- (fmap Just term <|> return Nothing)
+    body <- (do {smiley; list term} <|> return [])
+    dot
+    return (ruleHead, body) -- TODO `:-.` ~~~> Rule Nothing [], do I mind?
