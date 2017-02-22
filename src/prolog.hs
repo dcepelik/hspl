@@ -37,13 +37,14 @@ instance Alternative Parser where
     empty = mzero
     (<|>) = mplus
     many p = some p `mplus` return []
-    some p = do
-        a <- p
-        as <- many p
-        return (a:as)
+    some p = p >>= \ a -> many p >>= \ as -> return (a:as)
+{-do
+a <- p
+as <- many p
+return (a:as)-}
 
 parse :: Parser a -> String -> [(a, String)]
-parse (Parser p) input = p input
+parse (Parser f) input = f input
 
 {- simple parsers: building blocks for other parsers -}
 

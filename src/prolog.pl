@@ -271,7 +271,7 @@ sub substitute {
 
 
 sub comment {
-	#say "% ", @_;
+	say "% ", @_;
 }
 
 
