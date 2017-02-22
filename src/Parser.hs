@@ -10,7 +10,7 @@ data Term = Atom String
           | Complex String [Term]
           deriving Show
 
-data Rule = Rule (Maybe Term) [Term]
+data Rule = Rule Term [Term]
             deriving Show
 
 {- Parser algebra -}
@@ -37,11 +37,10 @@ instance Alternative Parser where
     empty = mzero
     (<|>) = mplus
     many p = some p `mplus` return []
-    some p = p >>= \ a -> many p >>= \ as -> return (a:as)
-{-do
-a <- p
-as <- many p
-return (a:as)-}
+    some p = do
+        a <- p
+        as <- many p
+        return (a:as)
 
 parse :: Parser a -> String -> [(a, String)]
 parse (Parser f) input = f input
@@ -129,7 +128,7 @@ term = complex <|> atom <|> variable <|> number
 
 rule :: Parser Rule
 rule = fmap (uncurry Rule) $ do
-    ruleHead <- (fmap Just term <|> return Nothing)
+    ruleHead <- term
     body <- (do {smiley; list term} <|> return [])
     dot
-    return (ruleHead, body) -- TODO `:-.` ~~~> Rule Nothing [], do I mind?
+    return (ruleHead, body)
