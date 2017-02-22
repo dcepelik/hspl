@@ -1,4 +1,7 @@
+module Parser (Term (Atom, Number, Variable, Compound), Rule (Rule), Program, parse, term, program) where
+
 import Data.Char
+import Data.List
 import Control.Monad
 import Control.Applicative
 
@@ -7,11 +10,20 @@ import Control.Applicative
 data Term = Atom String
           | Number Int
           | Variable String
-          | Complex String [Term]
-          deriving Show
+          | Compound String [Term]
+          
+instance Show Term where
+    show (Atom a) = a
+    show (Number n) = show n
+    show (Variable x) = x
+    show (Compound f args) = f ++ "(" ++ (intercalate ", " [ show arg | arg <- args]) ++ ")"
 
 data Rule = Rule Term [Term]
-            deriving Show
+
+instance Show Rule where
+    show (Rule head body) = (show head) ++ " :- " ++ intercalate ", " (map show body)
+
+type Program = [Rule]
 
 {- Parser algebra -}
 
@@ -26,12 +38,12 @@ instance Applicative Parser where
 
 instance Monad Parser where
     p >>= f = Parser (
-        \cs -> concat [parse (f val) cs' | (val, cs') <- parse p cs])
+        \cs -> concat [parse' (f val) cs' | (val, cs') <- parse' p cs])
     return = pure
 
 instance MonadPlus Parser where
     mzero = Parser (\input -> [])
-    mplus p q = Parser (\input -> parse p input ++ parse q input) 
+    mplus p q = Parser (\input -> parse' p input ++ parse' q input) 
 
 instance Alternative Parser where
     empty = mzero
@@ -42,8 +54,11 @@ instance Alternative Parser where
         as <- many p
         return (a:as)
 
-parse :: Parser a -> String -> [(a, String)]
-parse (Parser f) input = f input
+parse' :: Parser a -> String -> [(a, String)]
+parse' (Parser f) input = f input
+
+parse :: Parser a -> String -> a
+parse (Parser f) input = fst $ head $ f input
 
 {- simple parsers: building blocks for other parsers -}
 
@@ -115,8 +130,8 @@ atom = fmap Atom $ sat2 (\c -> isLower c || c == '_') isIdentChar
 number :: Parser Term
 number = fmap (Number . read) (some (sat isNumber))
 
-complex :: Parser Term
-complex = fmap (uncurry Complex) $ do
+compound :: Parser Term
+compound = fmap (uncurry Compound) $ do
     Atom f <- triml atom
     char '(' -- don't triml here: space before `(' not allowed
     args <- list1 $ triml term
@@ -124,7 +139,7 @@ complex = fmap (uncurry Complex) $ do
     return (f, args)
 
 term :: Parser Term
-term = complex <|> atom <|> variable <|> number
+term = compound <|> atom <|> variable <|> number
 
 rule :: Parser Rule
 rule = fmap (uncurry Rule) $ do
@@ -132,3 +147,9 @@ rule = fmap (uncurry Rule) $ do
     body <- (do {smiley; list term} <|> return [])
     dot
     return (ruleHead, body)
+
+program :: Parser Program
+program = do
+    space
+    rs <- many rule
+    return rs

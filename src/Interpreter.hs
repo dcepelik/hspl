@@ -1,19 +1,11 @@
+module Interpreter (reach, Subst) where
+
 import Data.List
 import Data.Maybe
 
-data Term = Atom String
-          | Number Int
-          | Variable String
-          | Compound String [Term]
+import Parser
 
-instance Show Term where
-    show (Atom a) = a
-    show (Number n) = show n
-    show (Variable x) = x
-    show (Compound f args) = f ++ "(" ++ (intercalate ", " [ show arg | arg <- args]) ++ ")"
-
-data Rule = Rule Term [Term]
-          deriving Show
+{- data structures -}
 
 type Subst = Maybe [(Term, Term)]
 
@@ -70,17 +62,9 @@ renameVars t u = renameAllVars (vars u) t
 unify :: Term -> Rule -> [Term]
 unify term (Rule head body) = substAll body (mgu term (renameVars head term))
 
-clauses :: [Rule]
-clauses = [ Rule (Compound "male" [Atom "david"]) [],
-            Rule (Compound "female" [Atom "claire"]) [],
-            Rule (Compound "male" [Atom "ondra"]) [],
-            Rule (Compound "man" [Variable "X"]) [ Compound "male" [Variable "X"] ],
-            Rule (Compound "man" [Variable "X"]) [ Compound "female" [Variable "X"] ],
-            Rule (Compound "can_mary" [Variable "X", Variable "Y"]) [ Compound "male" [ Variable "X" ], Compound "female" [ Variable "Y"] ] ]
+reach' :: Program -> [Term] -> Subst -> [Subst]
+reach' _ [] s = [s]
+reach' program (g:gs) s = concat [ (reach' program (substAll (b ++ gs) s') (joinSubst s s')) | (s', b) <- [ (mgu g (renameVars h g), b) | (Rule h b) <- program ], isJust s' ]
 
-reach' :: [Term] -> Subst -> [Subst]
-reach' [] s = [s]
-reach' (g:gs) s = concat [ (reach' (substAll (b ++ gs) s') (joinSubst s s')) | (s', b) <- [ (mgu g (renameVars h g), b) | (Rule h b) <- clauses ], isJust s' ]
-
-reach :: Term -> [Subst]
-reach t = reach' [t] (Just [])
+reach :: Program -> Term -> [Subst]
+reach program goal = reach' program [goal] (Just [])
