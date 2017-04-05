@@ -1,4 +1,4 @@
-zena(vdova).
+zena(vdova) :-.
 zena(dcera_vdovy).
 
 muz(ja).
