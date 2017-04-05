@@ -16,7 +16,7 @@ instance Show Term where
     show (Atom a) = a
     show (Number n) = show n
     show (Variable x) = x
-    show (Compound f args) = f ++ "(" ++ (intercalate ", " [ show arg | arg <- args]) ++ ")"
+    show (Compound f args) = f ++ "(" ++ (intercalate ", " [ show arg | arg <- args ]) ++ ")"
 
 data Rule = Rule Term [Term]
 
@@ -125,7 +125,7 @@ variable :: Parser Term
 variable = fmap Variable $ sat2 isUpper isIdentChar
 
 atom :: Parser Term
-atom = fmap Atom $ sat2 (\c -> isLower c || c == '_') isIdentChar
+atom = fmap Atom $ sat2 (\c -> isLower c || c == '_') (\ c -> isIdentChar c || c == '_')
 
 number :: Parser Term
 number = fmap (Number . read) (some (sat isNumber))
