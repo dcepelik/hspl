@@ -18,6 +18,9 @@ instance Show Term where
     show (Variable x) = x
     show (Compound f args) = f ++ "(" ++ (intercalate ", " [ show arg | arg <- args ]) ++ ")"
 
+instance Eq Term where
+    (==) a b = (show a) == (show b)
+
 data Rule = Rule Term [Term]
 
 instance Show Rule where

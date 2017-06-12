@@ -1,19 +1,28 @@
-module Interpreter (reach, Subst, showSubst, showSubst', vars) where
+module Interpreter (reach, Subst, showSubst, showSubst', vars, ExecState(ExecState)) where
 
 import Data.List
 import Data.Maybe
 import Debug.Trace
 import Text.Printf
+import Control.Monad.State
 
 import Parser
 
 {- data structures -}
 
+data ExecState = ExecState [Rule] Int
+instance Show ExecState where
+    show (ExecState _ counter) = "ExecState(counter=" ++ show counter ++ ")"
+
 type Subst = Maybe [(Term, Term)]
 type Renames = [(String, String)]
 
+emptySubst :: Subst
+emptySubst = Just []
+
 trace' :: String -> a -> a  
-trace' s x = trace s x
+--trace' s x = trace s x
+trace' s x = x
 
 showSubst (Just s) = intercalate ", " [ (show a) ++ "/" ++ (show b) | (a, b) <- s ]
 showSubst Nothing = "{no unification}"
@@ -36,10 +45,17 @@ mgu t1 t2 = trace' (printf "%% MGU `%s` and `%s`: %s" (show t1) (show t2) (showS
 
 -- Find MGU of several terms
 mguAll :: [Term] -> [Term] -> Subst
-mguAll (t:ts) (u:us) = joinSubst s (mguAll (substAll ts s) (substAll us s)) where s = mgu t u
+mguAll (t:ts) (u:us) = joinSubst s (mguAll (substAll' ts s) (substAll' us s)) where s = mgu t u
 mguAll [] [] = Just []
 mguAll _ [] = Nothing
 mguAll [] _ = Nothing
+
+mguGoalAndRule' :: Term -> Rule -> (Subst, [Term])
+mguGoalAndRule' goal (Rule head body) = (substitution, substAll' body substitution)
+    where substitution = mgu goal head
+
+mguGoalAndRule :: Term -> Rule -> State ExecState (Subst, [Term])
+mguGoalAndRule goal rule = state $ \ es -> (mguGoalAndRule' goal rule, es)
 
 -- Produce one substitution given two
 joinSubst :: Subst -> Subst -> Subst
@@ -48,87 +64,87 @@ joinSubst Nothing _ = Nothing
 joinSubst (Just s) (Just t) = Just $ [(l, r) | (l, r) <- s ] ++ t
 
 -- Given several terms and a substitution, apply the substitution to all of them
-substAll :: [Term] -> Subst -> [Term]
-substAll [] _ = []
-substAll ts s = map (`subst` s) ts
+substAll' :: [Term] -> Subst -> [Term]
+substAll' [] _ = []
+substAll' ts s = map (`subst'` s) ts
 
 -- Apply substitution to a term
-subst :: Term -> Subst -> Term
-subst t Nothing = t
-subst t (Just []) = t
-subst (Variable x) (Just ((Variable x', y):ss')) = if x == x' then y else subst (Variable x) (Just ss')
-subst (Compound f a) ss = Compound f (substAll a ss)
-subst t _ = t
+subst'' :: Term -> Subst -> Term
+subst'' t Nothing = t
+subst'' t (Just []) = t
+subst'' (Variable x) (Just ((Variable x', y):ss')) = if x == x' then y else subst'' (Variable x) (Just ss')
+subst'' (Compound f a) ss = Compound f (substAll' a ss)
+subst'' t _ = t
 
--- Return variables in a term
+subst' :: Term -> Subst -> Term
+subst' t s = if t == t' then t
+             else subst' t' s
+             where t' = subst'' t s
+
+subst :: Term -> Subst -> State ExecState Term
+subst term subst = state $ \ es -> (subst' term subst, es)
+
+substAll :: [Term] -> Subst -> State ExecState [Term]
+substAll terms st = state $ \ es -> (substAll' terms st, es)
+
+-- Return names of variables in a term
 vars :: Term -> [String]
 vars (Variable x) = [x]
-vars (Compound f args) = concat [ vars arg | arg <- args ]
+vars (Compound f args) = (varsAll args)
 vars _ = []
 
--- Does a term contain a variable?
-containsVar :: Term -> String -> Bool
-containsVar (Variable x') x = x == x'
-containsVar (Atom a) _ = False
-containsVar (Number n) _ = False
-containsVar (Compound f args) x = any (`containsVar` x) args
+-- Return the union of all variable names in all given terms
+varsAll :: [Term] -> [String]
+varsAll [] = []
+varsAll (t:ts) = union (vars t) (varsAll ts)
 
--- Returns a new name for a variable so that it does not collide with other vars
--- TODO
-newVarName :: String -> Term -> String
-newVarName var term = if containsVar term varPrime then newVarName varPrime term
-                      else varPrime
-                      where varPrime = (var ++ "'")
+renameRule :: Rule -> State ExecState Rule
+renameRule rule@(Rule head body) = do
+    rs <- renames rule
+    headS <- subst head rs
+    bodyS <- substAll body rs
+    return $ Rule headS bodyS
 
--- Rename a variable in a term
-renameVar :: String -> String -> Term -> Term
-renameVar oldName newName (Compound f args) = Compound f [ renameVar oldName newName arg | arg <- args ]
-renameVar oldName newName (Variable x) = if x == oldName then Variable newName else Variable x
-renameVar _ _ u = u
+renames :: Rule -> State ExecState Subst
+renames (Rule head body) = renames' (head:body)
 
--- Rename all variables in a term
-renameAllVars :: [String] -> Term -> Term
-renameAllVars [] u = u
-renameAllVars (var:rest) u = renameAllVars rest (renameVar var (newVarName var u) u)
+renames' :: [Term] -> State ExecState Subst
+renames' terms = renames'' (varsAll terms)
 
--- Given two terms, rename variables in the former so they do not collide with vars in the latter
-renameVars :: Term -> Term -> Term
-renameVars t u = renameAllVars (vars u) t
+renames'' :: [String] -> State ExecState Subst
+renames'' vars = Just <$> mapM (varRenameBit) vars
 
-renames' :: [String] -> Term -> [(String, String)]
-renames' [] _ = []
-renames' (v:vs) term = [(v, v')] ++ renames' vs (renameVar v v' term) where v' = newVarName v term
+varRenameBit :: String -> State ExecState (Term, Term)
+varRenameBit str = state $ \(ExecState rules counter)
+    -> ((Variable str, Variable (str ++ "_" ++ (show counter))), (ExecState rules (counter + 1)))
 
-renames :: Term -> Term -> Renames
-renames t1 t2 = renames' (vars t1) t2
+renameAllRules :: [Rule] -> State ExecState [Rule]
+renameAllRules rules = mapM (renameRule) rules
 
-applyRenames' :: Term -> Renames -> Term
-applyRenames' t [] = t
-applyRenames' t ((old, new):rs) = applyRenames' (renameVar old new t) rs
+unifications :: Term -> [Rule] -> State ExecState [(Subst, [Term])]
+unifications goal rules = mapM (mguGoalAndRule goal) rules
 
-applyRenames :: Rule -> Renames -> Rule
-applyRenames (Rule head body) rs = Rule (applyRenames' head rs) (map (`applyRenames'` rs) body)
+reach'' :: [Term] -> [Rule] -> Subst -> State ExecState [Subst]
+reach'' [] _ substitution = state $ \ es -> ([substitution], es)
+reach'' (g:gs) program substitution = do
+    renamedRules <- renameAllRules program
+    unifs <- unifications g renamedRules
+    newSubsts <- mapM id [ (reach' (b ++ (substAll' gs s)) program (joinSubst substitution s)) | (s, b) <- filter (isJust . fst) unifs ]
+    return $ concat newSubsts
 
-ruleHead :: Rule -> Term
-ruleHead (Rule head _) = head
 
-rename :: Term -> Rule -> Rule
-rename term rule = applyRenames rule (renames term (ruleHead rule))
+{- traced version of reach'' -}
+reach' gs prog s = trace' (printf "goals: %s" (intercalate ", " $ map show gs)) $ reach'' gs prog s
 
-unifications :: Program -> Term -> [(Subst, [Term])]
-unifications cs g = filter (isJust . fst) [ (mgu g h, b) | (Rule h b) <- map (rename g) cs ]
-
-reach'' :: Program -> [Term] -> Subst -> [Subst]
-reach'' cs [] s = [s]
-reach'' cs (g:gs) s = concat [ (reach' cs ((substAll b s') ++ gs) (joinSubst s s')) | (s', b) <- unifications cs g ]
-
-reach' :: Program -> [Term] -> Subst -> [Subst]
-reach' cs gs s = trace' (printf "goals: %s" (intercalate ", " $ map show gs)) $ reach'' cs gs s
-
-reach :: Program -> Term -> [Subst]
-reach cs g = reach' cs [g] (Just [])
+reach :: Term -> [Rule] -> State ExecState [Subst]
+reach goal program = reach' [goal] program emptySubst
 
 showSubst' :: Subst -> [String] -> String
-showSubst' (Just []) vs = ""
-showSubst' (Just ((Variable x, t):s)) vs = if any (== x) vs then (x ++ " = " ++ (show t) ++ ", ") ++ (showSubst' (Just s) vs)
-                                           else showSubst' (Just s) vs
+showSubst' Nothing _ = "false."
+showSubst' _ [] = "true."
+showSubst' subst vars = intercalate ", " $ map (\ var -> var ++ "/" ++ (show (showSubstVar subst (Variable var)))) vars
+
+showSubstVar :: Subst -> Term -> Term
+showSubstVar subst term = if newTerm == term then term
+                          else showSubstVar subst newTerm
+                          where newTerm = subst' term subst
