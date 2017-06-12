@@ -17,6 +17,6 @@ main = do
 
     let (substs, newState) = runState (reach goal clauses) (ExecState clauses 0)
 
-    putStrLn $ concat $ map (\ s -> ((showSubst' s (vars goal)) ++ "\n")) $ take 20 substs
+    putStrLn $ concat $ map (\ s -> ((showSubstVars s (varNames goal)) ++ "\n")) $ take 20 substs
 
     putStrLn ""
