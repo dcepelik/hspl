@@ -5,7 +5,7 @@ import System.IO
 
 main :: IO ()
 main = do
-    code <- readFile "/home/david/sw/prolog/tests/peano.pl"
+    code <- readFile "/home/david/sw/prolog/tests/lists.pl"
     let clauses = parse program code
     putStr $ concat (map (\ c -> "% " ++ (show c) ++ "\n") clauses)
     putStrLn "%%"

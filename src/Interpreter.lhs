@@ -21,8 +21,8 @@ of that variable.
 Subst is a type and cannot be a Show instance. We therefore use showSubst to get a pretty
 human-readable string representation of the substitution.
 
-> showSubst (Just s) = intercalate ", " [ (show a) ++ "/" ++ (show b) | (a, b) <- s ]
-> showSubst Nothing = "[no substitution]"
+> showSubst :: Subst -> String
+> showSubst (Just subst) = showSubstVars (Just subst) (varNamesMany $ map fst subst)
 
 Given a substitution and a variable, substitute the variable recursively as long as the application
 of the substitution changes the variable's contents. This is used byt he Main module to print the
@@ -39,7 +39,7 @@ of the variables.
 > showSubstVars :: Subst -> [String] -> String
 > showSubstVars Nothing _ = "false."
 > showSubstVars _ [] = "true."
-> showSubstVars subst varNames = intercalate ", " $ map (\ var -> var ++ "/" ++ (show (showSubstVar subst (Variable var)))) varNames
+> showSubstVars subst varNames = intercalate ", " $ map (\ var -> var ++ " = " ++ (show (showSubstVar subst (Variable var)))) varNames
 
 Introduce empty substitution so that we don't have to write (Just []) all the time.
 
