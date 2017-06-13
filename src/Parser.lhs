@@ -16,7 +16,7 @@ data structures
 >     show (Atom a) = a
 >     show (Number n) = show n
 >     show (Variable x) = x
->     show term@(Compound f args) = 
+>     show term@(Compound f args) =
 >		if f == "." then showList' term
 >		else f ++ "(" ++ (intercalate ", " [ show arg | arg <- args ]) ++ ")"
 
@@ -130,7 +130,7 @@ Prolog character classes and operator parsers
 > comma = triml $ char ','
 
 > isIdentChar :: Char -> Bool
-> isIdentChar c = isAlphaNum c || isSymbol c
+> isIdentChar c = isAlphaNum c || c == '_'
 
 > smiley = triml $ string ":-"
 
@@ -159,7 +159,7 @@ Prolog language construct parsers
 > list :: Parser Term
 > list = do
 >	char '['
->	list'
+>	do { triml $ char ']'; return emptyList} <|> list'
 
 > list' :: Parser Term
 > list' = fmap (uncurry Compound) $ do
@@ -176,7 +176,13 @@ Prolog language construct parsers
 > listHead = triml term <|> list''
 
 > listTail :: Parser Term
-> listTail = do { triml $ char '|'; triml list <|> triml variable } <|> do { triml $ char ','; list' } <|> list''
+> listTail = do { triml $ char '|'; triml list <|> listTailVar } <|> do { triml $ char ','; list' } <|> list''
+
+> listTailVar :: Parser Term
+> listTailVar = do
+>	var <- triml variable
+>	char ']'
+>	return var
 
 > term :: Parser Term
 > term = list <|> compound <|> atom <|> variable <|> number

@@ -20,3 +20,6 @@ pairlt(A, B, N) :- lt(A, N), lt(B, N), lt(A,B).
 triplelt(A, B, C, N) :- lt(A, N), lt(B, N), lt(C, N), lt(A, B), lt(B, C).
 
 pyth(A, B, C, N) :- triplelt(A, B, C, N), prod(A, A, A2), prod(B, B, B2), prod(C, C, C2), sum(A2, B2, C2).
+
+length([], 0).
+length([Head|Tail], s(Len)) :- length(Tail, Len).

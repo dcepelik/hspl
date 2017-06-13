@@ -23,6 +23,7 @@ human-readable string representation of the substitution.
 
 > showSubst :: Subst -> String
 > showSubst (Just subst) = showSubstVars (Just subst) (varNamesMany $ map fst subst)
+> showSubst Nothing = "[no subst]"
 
 Given a substitution and a variable, substitute the variable recursively as long as the application
 of the substitution changes the variable's contents. This is used byt he Main module to print the
@@ -33,7 +34,7 @@ ultimate value of free variables in the user's query.
 >                           else showSubstVar subst newTerm
 >                           where newTerm = subst' term subst
 
-Given a substitution and a list of variable names, use showSubstVar to print the ultimate values
+Given a substitution and a list of variable names, use showSubstVar to print the definitive values
 of the variables.
 
 > showSubstVars :: Subst -> [String] -> String
@@ -78,7 +79,7 @@ subtitution, the first, second, third, ... terms in both lists should be the sam
 TODO
 
 > mgu :: Term -> Term -> Subst
-> mgu t1 t2 = trace' (printf "%% MGU `%s` and `%s`: %s" (show t1) (show t2) (showSubst s)) s
+> mgu t1 t2 = trace' (printf "%%%% MGU `%s` and `%s`: %s" (show t1) (show t2) (showSubst s)) s
 >             where s = mgu' t1 t2
 
 TODO
@@ -194,6 +195,9 @@ This is a stateful action.
 > unifications :: Term -> [Rule] -> State ExecState [(Subst, [Term])]
 > unifications goal rules = mapM (mguGoalAndRule goal) rules
 
+> canUnify :: Term -> Term -> Bool
+> canUnify t1 t2 = (mgu t1 t2) /= Nothing
+
 This is the single most important procedure performing the resolution.
 
 Given a set of goals, program clauses and a substitution that got us into this state of computation
@@ -202,20 +206,25 @@ that was accumulated along the way.
   
 This is a stateful action.
 
-> reach'' :: [Term] -> [Rule] -> Subst -> State ExecState [Subst]
-> reach'' [] _ substitution = state $ \ es -> ([substitution], es)
-> reach'' (g:gs) program substitution = do
->     renamedRules <- renameMany program
+> reach'' :: [Term] -> Subst -> State ExecState [Subst]
+> reach'' [] s = state $ \ es -> ([s], es)
+> reach'' ((Compound "ne" [t1, t2]):gs) s' =
+>  	  if (not $ canUnify t1 t2) then reach'' gs s'
+>  	  else return []
+> reach'' (g:gs) s' = state $ \ es@(ExecState rules _) -> runState (do
+>     renamedRules <- renameMany rules
 >     unifs <- unifications g renamedRules
->     newSubsts <- mapM id [ (reach' (b ++ (substAll' gs s)) program (joinSubst substitution s)) | (s, b) <- filter (isJust . fst) unifs ]
->     return $ concat newSubsts
-
+>     newSubsts <- mapM id [ (reach' (b ++ (substAll' gs s)) (joinSubst s' s)) | (s, b) <- filter (isJust . fst) unifs ]
+>     return $ concat newSubsts) es
 
 TODO
 
-> reach' gs prog s = trace' (printf "goals: %s" (intercalate ", " $ map show gs)) $ reach'' gs prog s
+> reach' gs s = trace' (printf "%%%% goals: %s" (intercalate ", " $ map show gs)) $ reach'' gs s
 
 This is a wrapper around reach'' to provide a nicer API to the Main module.
 
-> reach :: Term -> [Rule] -> State ExecState [Subst]
-> reach goal program = reach' [goal] program emptySubst
+> reach :: Term -> State ExecState [Subst]
+> reach goal = reach' [goal] emptySubst
+
+reachNew :: Term -> State ExecState [Subst]
+reachNew goal = state $ \ es@(ExecState rules _) -> runState (reach goal) es
