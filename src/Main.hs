@@ -10,9 +10,11 @@ main = do
     code <- readFile filename
     let prog = parse program code
 
-    putStrLn $ "Loaded " ++ (show $ length prog) ++ " prog rules from " ++ filename
-    putStr $ concat (map (\ c -> "% " ++ (show c) ++ "\n") prog)
-    putStrLn "%%%%"
+    putStrLn $ "\t%% Input file is " ++ filename
+    putStrLn $ "\t%% Loaded " ++ (show $ length prog) ++ " prog rules"
+    putStr $ concat (map (\ c -> "\t\t%%" ++ (show c) ++ "\n") prog)
+    putStrLn "\t%% Ready."
+    putStrLn ""
 
     mainloop prog
 
@@ -25,6 +27,7 @@ mainloop prog = do
     let goal = parse term input
 
     let (substs, _) = runState (reach goal) (ExecState prog 0)
-    putStrLn $ concat $ map (\ s -> ((showSubstVars s (varNames goal)) ++ "\n")) $ substs
+    if substs /= [] then putStrLn $ concat $ map (\ s -> ((showSubstVars s (varNames goal)) ++ "\n")) $ substs
+    else putStrLn "false." >> putStrLn ""
 
     mainloop prog

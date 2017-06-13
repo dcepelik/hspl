@@ -36,7 +36,7 @@ TODO clean this up
 > data Rule = Rule Term [Term]
 
 > instance Show Rule where
->     show (Rule head body) = (show head) ++ " :- " ++ intercalate ", " (map show body)
+>     show (Rule head body) = (show head) ++ (if body /= [] then " :- " else "") ++ intercalate ", " (map show body) ++ "."
 
 > type Program = [Rule]
 

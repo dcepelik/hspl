@@ -50,47 +50,41 @@ Introduce empty substitution so that we don't have to write (Just []) all the ti
 TODO
 
 > trace' :: String -> a -> a  
-> --trace' s x = trace s x
-> trace' s x = x
+> trace' s x = trace s x
+> --trace' s x = x
 
 Find most general unification (MGU) of two terms. This is easy in most cases, the only trickier
 case is when we attempt to find MGU of two compound terms (then we have to use mguList).
 
-> mgu' :: Term -> Term -> Subst
+> mgu :: Term -> Term -> Subst
 
-> mgu' (Atom a) (Atom b) = if a == b then Just [] else Nothing
-> mgu' (Number m) (Number n) = if m == n then Just [] else Nothing
-> mgu' (Variable x) t = Just [ (Variable x, t) ]
-> mgu' t (Variable x) = Just [ (Variable x, t) ]
-> mgu' (Compound f args1) (Compound g args2) =
->     if f == g then mguList args1 args2
->     else Nothing
-> mgu' _ _ = Nothing
+> mgu (Atom a) (Atom b) = if a == b then Just [] else Nothing
+> mgu (Number m) (Number n) = if m == n then Just [] else Nothing
+> mgu (Variable x) t = Just [ (Variable x, t) ]
+> mgu t (Variable x) = Just [ (Variable x, t) ]
+> mgu (Compound f args1) (Compound g args2) =
+>    if f == g then mguList args1 args2
+>    else Nothing
+> mgu _ _ = Nothing
 
 Given two lists of terms, find an MGU that unifies corresponding pairs in the lists (after
 subtitution, the first, second, third, ... terms in both lists should be the same).
 
 > mguList :: [Term] -> [Term] -> Subst
-> mguList (t:ts) (u:us) = joinSubst s (mguList (substAll' ts s) (substAll' us s)) where s = mgu' t u
+> mguList (t:ts) (u:us) = joinSubst s (mguList (substAll' ts s) (substAll' us s)) where s = mgu t u
 > mguList [] [] = Just []
 > mguList _ [] = Nothing
 > mguList [] _ = Nothing
 
 TODO
 
-> mgu :: Term -> Term -> Subst
-> mgu t1 t2 = trace' (printf "%%%% MGU `%s` and `%s`: %s" (show t1) (show t2) (showSubst s)) s
->             where s = mgu' t1 t2
-
-TODO
-
-> mguGoalAndRule' :: Term -> Rule -> (Subst, [Term])
-> mguGoalAndRule' goal (Rule head body) = (substitution, substAll' body substitution)
+> mguGoalAndRule' :: Term -> Rule -> (Rule, Subst)
+> mguGoalAndRule' goal rule@(Rule head _) = (rule, substitution)
 >     where substitution = mgu goal head
 
 TODO
 
-> mguGoalAndRule :: Term -> Rule -> State ExecState (Subst, [Term])
+> mguGoalAndRule :: Term -> Rule -> State ExecState (Rule, Subst)
 > mguGoalAndRule goal rule = state $ \ es -> (mguGoalAndRule' goal rule, es)
 
 Merge two substitutions into one. Application of the resulting substitution should have the same
@@ -192,7 +186,7 @@ component is the result of applying that substitution to that rule's body.
 
 This is a stateful action.
 
-> unifications :: Term -> [Rule] -> State ExecState [(Subst, [Term])]
+> unifications :: Term -> [Rule] -> State ExecState [(Rule, Subst)]
 > unifications goal rules = mapM (mguGoalAndRule goal) rules
 
 > canUnify :: Term -> Term -> Bool
@@ -214,12 +208,13 @@ This is a stateful action.
 > reach'' (g:gs) s' = state $ \ es@(ExecState rules _) -> runState (do
 >     renamedRules <- renameMany rules
 >     unifs <- unifications g renamedRules
->     newSubsts <- mapM id [ (reach' (b ++ (substAll' gs s)) (joinSubst s' s)) | (s, b) <- filter (isJust . fst) unifs ]
+>     let unifs' = filter (isJust . snd) unifs
+>     newSubsts <- mapM id [ trace (printf "\t\t%%%% Using `%s' with %s." (show rule) (showSubst s)) (reach' ((substAll' body s) ++ (substAll' gs s)) (joinSubst s' s)) | (rule@(Rule head body), s) <- unifs' ]
 >     return $ concat newSubsts) es
 
 TODO
 
-> reach' gs s = trace' (printf "%%%% goals: %s" (intercalate ", " $ map show gs)) $ reach'' gs s
+> reach' gs s = trace' (printf "\t%%%% Current goals: {%s}" (intercalate ", " $ map show gs)) $ reach'' gs s
 
 This is a wrapper around reach'' to provide a nicer API to the Main module.
 

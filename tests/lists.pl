@@ -38,3 +38,8 @@ sublist([Head|Tail], [Item|Rest]) :- sublist([Head|Tail], Rest), ne(Head, Item).
 
 list([]).
 list([Head|Tail]).
+
+pairs([], Extra, []).
+pairs(Extra, [], []).
+pairs([H1|T1], [H2|T2], [[H1,H2]|SPairs]) :- pairs(T1, T2, SPairs).
+
