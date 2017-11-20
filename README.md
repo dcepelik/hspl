@@ -5,7 +5,7 @@
 `hspl` is a very simple interpreter of a subset of Prolog written in Literate
 Haskell. I wrote it as an exercise to grasp basics of both Prolog and Haskell.
 
-It may be interesting for you if you want to play around with either Prolog or
+It may be interesting to you if you want to play around with either Prolog or
 Haskell, or if you're interested in some of topics below.
 
 Feel free to contact me if you have any questions.
@@ -18,7 +18,7 @@ Feel free to contact me if you have any questions.
 
 ### Unsupported Features
 
-  * Most of Prolog features: arithmetics, operators (such as `=`, `is`, etc.)
+  * Most of Prolog's features: arithmetics, operators (such as `=`, `is`, etc.)
   * I didn't use monad transformers to intermix `State` with `IO`, so I cannot
     use ie. the `consult("filename")` predicate to load the file during
 	execution
